@@ -1,5 +1,5 @@
 ### English words teacher telegram bot (part of project)
-Part of the project to get acquainted with the architecture and coding style
+Part of a project to get acquainted with my development skills, architecture and coding style.
 
 ### Description
 Bot helps you learn and memorize English words. 
