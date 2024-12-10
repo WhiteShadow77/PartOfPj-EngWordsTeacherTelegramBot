@@ -1,0 +1,129 @@
+<?php
+
+namespace App\Services\DataStructures\TelegramCommandsFactory\TelegramMenuCommandsFactory;
+
+use App\Services\Cache\LanguageCacheService;
+use App\Services\Cache\MenuCacheService;
+use App\Services\DataStructures\EnglishWordsSchedule\DayQuizQuantitySchedule;
+use App\Services\DataStructures\EnglishWordsSchedule\DayTimesSchedule;
+use App\Services\DataStructures\EnglishWordsSchedule\WeekSchedule;
+use App\Services\TelegramService;
+use App\Services\UserService;
+use App\Enums\SendScheduleKind;
+use Illuminate\Support\Facades\App;
+
+class QuizSendingDaySetTime extends TelegramMenuCommandFactory
+{
+    public function run(
+        UserService $userService,
+        TelegramService $telegramService,
+        ?string $messageId,
+        string $chatId,
+        weekSchedule $weekSchedule,
+        DayTimesSchedule $dayTimesSchedule,
+        MenuCacheService $menuCacheService,
+        LanguageCacheService $languageCacheService
+    ) {
+        $userLanguage = $languageCacheService->getLanguageInsteadFromDbByChatId($chatId);
+        App::setLocale($userLanguage);
+
+        $configurableDay = $menuCacheService->getConfigurableDay();
+        $configurableTime = $this->arguments[2];
+        $menuCacheService->setConfigurableTime($configurableTime);
+
+        /** @var $weekScheduleConfig */
+        /** @var $daysAndQuizQuantityConfig */
+        /** @var $dayAndTimesConfig */
+        $weekSchedule->getFromUserByChatId(
+            $chatId,
+            SendScheduleKind::quiz,
+            $weekScheduleConfig,
+            $dayAndTimesConfig,
+            $daysAndQuizQuantityConfig
+        );
+
+        $dayTimesSchedule->setScheduleKind(SendScheduleKind::quiz);
+        $weekSchedule->setWeekSchedule($weekScheduleConfig);
+        $weekSchedule->setWeekScheduleWithTimes($dayAndTimesConfig);
+        $weekSchedule->setWeekSchedulWithQuizQuantities($daysAndQuizQuantityConfig);
+
+        $dayTimesSchedule->setSendingTime($configurableTime);
+
+        $weekSchedule->setSendingDayTimeAndDayQuizQuantity(
+            $configurableDay,
+            $dayTimesSchedule
+        );
+
+        $weekSchedule->saveToUserByChatId($chatId, SendScheduleKind::quiz);
+
+        $this->outputQuizSetPortionMenuButtons(
+            $chatId,
+            $configurableDay,
+            $telegramService,
+            $userService,
+            $weekSchedule,
+            $menuCacheService
+        );
+    }
+
+    private function outputQuizSetPortionMenuButtons(
+        string $chatId,
+        string $configurableDay,
+        TelegramService $telegramService,
+        UserService $userService,
+        $weekSchedule,
+        $menuCacheService
+    ) {
+        $data = $weekSchedule->getFromUserByChatId(
+            $chatId,
+            SendScheduleKind::quiz
+        );
+
+        $quizQuantityForConfigurableDay = isset($data['quiz_quantities'][$configurableDay])
+            ? $data['quiz_quantities'][$configurableDay]
+            : null;
+
+        $quizAvailableQuantity = $userService->getQuizAvailableQuantity();
+
+        $buffer = [];
+        for ($quizQuantity = 1; $quizQuantity <= $quizAvailableQuantity; $quizQuantity++) {
+            if ($quizQuantity == $quizQuantityForConfigurableDay) {
+                $checked = hex2bin('E29C85');
+            } else {
+                $checked = '';
+            }
+            if ($quizQuantity % 7) {
+                $buffer[] = [
+                    'text' => $quizQuantity . ' ' . $checked,
+                    'callback_data' => '#menu QuizSetNewPortion' . ' ' . $quizQuantity,
+                ];
+            } else {
+                $buffer[] = [
+                    'text' => $quizQuantity . ' ' . $checked,
+                    'callback_data' => '#menu QuizSetNewPortion' . ' ' . $quizQuantity,
+                ];
+                $buttonsStruct[] = $buffer;
+                $buffer = [];
+            }
+        }
+
+        $buttonsStruct[] = $buffer;
+        $buttonsStruct[] = [
+            [
+                'text' => __("Back"),
+                'callback_data' => '#menu QuizResetSendingDay ' . $configurableDay,
+            ],
+            [
+                'text' => __("Quit"),
+                'callback_data' => '#menu QuizNotFinishedSetUpMessageMenu',
+            ]
+        ];
+
+        $telegramService->editMessageAndButtons(
+            $chatId,
+            $menuCacheService->getMenuMessageId(),
+            __("Select the number of quizzes for") . ' ' . __("messages.for_day." . $configurableDay) . ':',
+            $buttonsStruct
+        );
+    }
+}
